@@ -27,6 +27,7 @@ export = ["bincode"]
 criterion = "0.5"
 oneio = "0.15"
 tempdir = "0.3"
+bgpkit-parser = "0.10.0-beta.1"
 
 [[bench]]
 name = "benchmark"
