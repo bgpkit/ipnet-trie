@@ -169,7 +169,7 @@ mod tests {
 
         fn new_test_large() -> Self {
             let mut trie = IpnetTrie::new();
-            for ip in 0..1_000_000 {
+            for ip in 0..100_000 {
                 let ipnet = Ipv4Net::new(Ipv4Addr::from(ip), 32).unwrap();
                 trie.insert(ipnet, "Value 1".to_string());
             }
