@@ -32,3 +32,7 @@ bgpkit-parser = "0.10.0-beta.1"
 [[bench]]
 name = "benchmark"
 harness = false
+
+[[example]]
+name = "bgp-rib-trie-export"
+required-features = ["export"]
