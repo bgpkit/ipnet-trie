@@ -10,6 +10,7 @@ IPv4 and IPv6 network fast lookup prefix trie.
 
 ## Description
 
+This crate is derived from [`ip-network-table`](https://github.com/JakubOnderka/ip_network_table).
 
 This crate provides storage and retrieval of IPv4 and IPv6 network prefixes.
 
