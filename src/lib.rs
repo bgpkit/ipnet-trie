@@ -25,7 +25,6 @@
     html_favicon_url = "https://raw.githubusercontent.com/bgpkit/assets/main/logos/favicon.ico"
 )]
 
-
 #[cfg(feature = "export")]
 mod export;
 
