@@ -10,13 +10,12 @@ IPv4 and IPv6 network fast lookup prefix trie.
 
 ## Description
 
-This crate is derived from [`ip-network-table`](https://github.com/JakubOnderka/ip_network_table).
-
 This crate provides storage and retrieval of IPv4 and IPv6 network prefixes.
 
-Currently, it uses [`ipnet`](https://docs.rs/ipnet/latest/ipnet/) crate as IP network data structure and fork of
- [`treebitmap`](https://github.com/hroi/treebitmap) ([fork](https://github.com/JakubOnderka/treebitmap)) as backend, 
-that provides fast lookup times, and a small memory footprint. Backend can be changed in future releases.
+Currently, it uses [`ipnet`](https://docs.rs/ipnet/latest/ipnet/) crate as IP network data structure and
+[`prefix-trie`](https://github.com/tiborschneider/prefix-trie) as
+backend,
+that provides fast lookup times, and a small memory footprint.
 
 ## Feature flags
 
