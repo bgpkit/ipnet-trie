@@ -50,193 +50,6 @@ where
     }
 }
 
-impl<T: Clone> IpnetTrie<T> {
-    /// Find the difference between two prefix tries, returning two vectors of IpNets, one for
-    /// added prefixes, and one for removed prefixes.
-    ///
-    /// - added prefixes: all prefixes in other that are not in self
-    /// - removed prefixes: all prefixes in self that are not in other
-    pub fn diff(&self, other: &Self) -> (Vec<IpNet>, Vec<IpNet>) {
-        let mut added = IpnetTrie::<bool>::new();
-        let mut removed = IpnetTrie::<bool>::new();
-
-        // Find added prefixes: all prefixes in self that are not in other
-        // Method: build a trie using all prefixes in self, then remove all prefixes in other on the trie.
-        // The remaining prefixes are the added prefixes.
-        let (self_ipv4_prefixes, self_ipv6_prefixes) = self.get_aggregated_prefixes();
-        let (other_ipv4_prefixes, other_ipv6_prefixes) = other.get_aggregated_prefixes();
-
-        let mut self_ipv4_map: PrefixMap<Ipv4Net, bool> = PrefixMap::new();
-        for prefix in &self_ipv4_prefixes {
-            self_ipv4_map.insert(*prefix, true);
-        }
-        let mut other_ipv4_map: PrefixMap<Ipv4Net, bool> = PrefixMap::new();
-        for prefix in &other_ipv4_prefixes {
-            other_ipv4_map.insert(*prefix, true);
-        }
-        // check added prefixes in other
-        for v4_prefix in &other_ipv4_prefixes {
-            if self_ipv4_map.get_lpm(&v4_prefix).is_some() {
-                // Prefix is covered by some super-prefix in self, nothing added
-                continue;
-            }
-
-            // Prefix is not covered by some super-prefix in self, there might be some overlapping sub-prefixes.
-            // get non-overlapping sub-prefixes
-            let sub_prefixes = IpNet::aggregate(
-                &self_ipv4_map
-                    .children(v4_prefix)
-                    .map(|(p, _)| IpNet::from(*p))
-                    .collect::<Vec<IpNet>>(),
-            );
-
-            if sub_prefixes.is_empty() {
-                // Self-trie does not have any sub-prefixes of the given trie
-                added.insert(*v4_prefix, true);
-            } else {
-                // Self-trie has sub-prefixes of the given trie, in other words, the other-trie
-                // added a new covering super-prefix comparing to the self-trie.
-
-                let mut target_prefixes: Vec<IpNet> = vec![(*v4_prefix).into()];
-                for sub_prefix in sub_prefixes {
-                    let mut new_prefixes = vec![];
-                    for target_prefix in target_prefixes {
-                        // make sure none of the new prefixes overlap with the sub-prefix prefix
-                        new_prefixes.extend(exclude_prefix(target_prefix, sub_prefix));
-                    }
-
-                    target_prefixes = IpNet::aggregate(&new_prefixes);
-                }
-                for target_prefix in target_prefixes {
-                    added.insert(target_prefix, true);
-                }
-            }
-        }
-        // check deleted prefixes in other
-        for v4_prefix in &self_ipv4_prefixes {
-            if other_ipv4_map.get_lpm(&v4_prefix).is_some() {
-                continue;
-            }
-            // get non-overlapping sub-prefixes
-            let sub_prefixes = IpNet::aggregate(
-                &other_ipv4_map
-                    .children(v4_prefix)
-                    .map(|(p, _)| IpNet::from(*p))
-                    .collect::<Vec<IpNet>>(),
-            );
-
-            if sub_prefixes.is_empty() {
-                // Self-trie does not have any sub-prefixes of the given trie
-                removed.insert(*v4_prefix, true);
-            } else {
-                // Self-trie has sub-prefixes of the given trie, in other words, the other-trie
-                // added a new covering super-prefix comparing to the self-trie.
-
-                let mut target_prefixes: Vec<IpNet> = vec![(*v4_prefix).into()];
-                for sub_prefix in sub_prefixes {
-                    let mut new_prefixes = vec![];
-                    for target_prefix in target_prefixes {
-                        // make sure none of the new prefixes overlap with the sub-prefix prefix
-                        new_prefixes.extend(exclude_prefix(target_prefix, sub_prefix));
-                    }
-
-                    target_prefixes = IpNet::aggregate(&new_prefixes);
-                }
-                for target_prefix in target_prefixes {
-                    removed.insert(target_prefix, true);
-                }
-            }
-        }
-
-        let mut self_ipv6_map: PrefixMap<Ipv6Net, bool> = PrefixMap::new();
-        for prefix in &self_ipv6_prefixes {
-            self_ipv6_map.insert(*prefix, true);
-        }
-        let mut other_ipv6_map: PrefixMap<Ipv6Net, bool> = PrefixMap::new();
-        for prefix in &other_ipv6_prefixes {
-            other_ipv6_map.insert(*prefix, true);
-        }
-        // check added prefixes in other
-        for v6_prefix in &other_ipv6_prefixes {
-            if self_ipv6_map.get_lpm(&v6_prefix).is_some() {
-                // Prefix is covered by some super-prefix in self, nothing added
-                continue;
-            }
-
-            // Prefix is not covered by some super-prefix in self, there might be some overlapping sub-prefixes.
-            // get non-overlapping sub-prefixes
-            let sub_prefixes = IpNet::aggregate(
-                &self_ipv6_map
-                    .children(v6_prefix)
-                    .map(|(p, _)| IpNet::from(*p))
-                    .collect::<Vec<IpNet>>(),
-            );
-
-            if sub_prefixes.is_empty() {
-                // Self-trie does not have any sub-prefixes of the given trie
-                added.insert(*v6_prefix, true);
-            } else {
-                // Self-trie has sub-prefixes of the given trie, in other words, the other-trie
-                // added a new covering super-prefix comparing to the self-trie.
-
-                let mut target_prefixes: Vec<IpNet> = vec![(*v6_prefix).into()];
-                for sub_prefix in sub_prefixes {
-                    let mut new_prefixes = vec![];
-                    for target_prefix in target_prefixes {
-                        // make sure none of the new prefixes overlap with the sub-prefix prefix
-                        new_prefixes.extend(exclude_prefix(target_prefix, sub_prefix));
-                    }
-
-                    target_prefixes = IpNet::aggregate(&new_prefixes);
-                }
-                for target_prefix in target_prefixes {
-                    added.insert(target_prefix, true);
-                }
-            }
-        }
-        // check deleted prefixes in other
-        for v6_prefix in &self_ipv6_prefixes {
-            if other_ipv6_map.get_lpm(&v6_prefix).is_some() {
-                continue;
-            }
-            // get non-overlapping sub-prefixes
-            let sub_prefixes = IpNet::aggregate(
-                &other_ipv6_map
-                    .children(v6_prefix)
-                    .map(|(p, _)| IpNet::from(*p))
-                    .collect::<Vec<IpNet>>(),
-            );
-
-            if sub_prefixes.is_empty() {
-                // Self-trie does not have any sub-prefixes of the given trie
-                removed.insert(*v6_prefix, true);
-            } else {
-                // Self-trie has sub-prefixes of the given trie, in other words, the other-trie
-                // added a new covering super-prefix comparing to the self-trie.
-
-                let mut target_prefixes: Vec<IpNet> = vec![(*v6_prefix).into()];
-                for sub_prefix in sub_prefixes {
-                    let mut new_prefixes = vec![];
-                    for target_prefix in target_prefixes {
-                        // make sure none of the new prefixes overlap with the sub-prefix prefix
-                        new_prefixes.extend(exclude_prefix(target_prefix, sub_prefix));
-                    }
-
-                    target_prefixes = IpNet::aggregate(&new_prefixes);
-                }
-                for target_prefix in target_prefixes {
-                    removed.insert(target_prefix, true);
-                }
-            }
-        }
-
-        (
-            added.iter().map(|(p, _)| p).collect(),
-            removed.iter().map(|(p, _)| p).collect(),
-        )
-    }
-}
-
 /// Splits a source IP network into multiple IP networks based on a target IP network.
 ///
 /// It makes sure the returning IP networks are non-overlapping and does not include the target prefix.
@@ -736,6 +549,191 @@ impl<T> IpnetTrie<T> {
             }
         }
         (ipv4_prefixes, ipv6_prefixes)
+    }
+
+    /// Find the difference between two prefix tries, returning two vectors of IpNets, one for
+    /// added prefixes, and one for removed prefixes.
+    ///
+    /// - added prefixes: all prefixes in other that are not in self
+    /// - removed prefixes: all prefixes in self that are not in other
+    pub fn diff(&self, other: &Self) -> (Vec<IpNet>, Vec<IpNet>) {
+        let mut added = IpnetTrie::<bool>::new();
+        let mut removed = IpnetTrie::<bool>::new();
+
+        // Find added prefixes: all prefixes in self that are not in other
+        // Method: build a trie using all prefixes in self, then remove all prefixes in other on the trie.
+        // The remaining prefixes are the added prefixes.
+        let (self_ipv4_prefixes, self_ipv6_prefixes) = self.get_aggregated_prefixes();
+        let (other_ipv4_prefixes, other_ipv6_prefixes) = other.get_aggregated_prefixes();
+
+        let mut self_ipv4_map: PrefixMap<Ipv4Net, bool> = PrefixMap::new();
+        for prefix in &self_ipv4_prefixes {
+            self_ipv4_map.insert(*prefix, true);
+        }
+        let mut other_ipv4_map: PrefixMap<Ipv4Net, bool> = PrefixMap::new();
+        for prefix in &other_ipv4_prefixes {
+            other_ipv4_map.insert(*prefix, true);
+        }
+        // check added prefixes in other
+        for v4_prefix in &other_ipv4_prefixes {
+            if self_ipv4_map.get_lpm(&v4_prefix).is_some() {
+                // Prefix is covered by some super-prefix in self, nothing added
+                continue;
+            }
+
+            // Prefix is not covered by some super-prefix in self, there might be some overlapping sub-prefixes.
+            // get non-overlapping sub-prefixes
+            let sub_prefixes = IpNet::aggregate(
+                &self_ipv4_map
+                    .children(v4_prefix)
+                    .map(|(p, _)| IpNet::from(*p))
+                    .collect::<Vec<IpNet>>(),
+            );
+
+            if sub_prefixes.is_empty() {
+                // Self-trie does not have any sub-prefixes of the given trie
+                added.insert(*v4_prefix, true);
+            } else {
+                // Self-trie has sub-prefixes of the given trie, in other words, the other-trie
+                // added a new covering super-prefix comparing to the self-trie.
+
+                let mut target_prefixes: Vec<IpNet> = vec![(*v4_prefix).into()];
+                for sub_prefix in sub_prefixes {
+                    let mut new_prefixes = vec![];
+                    for target_prefix in target_prefixes {
+                        // make sure none of the new prefixes overlap with the sub-prefix prefix
+                        new_prefixes.extend(exclude_prefix(target_prefix, sub_prefix));
+                    }
+
+                    target_prefixes = IpNet::aggregate(&new_prefixes);
+                }
+                for target_prefix in target_prefixes {
+                    added.insert(target_prefix, true);
+                }
+            }
+        }
+        // check deleted prefixes in other
+        for v4_prefix in &self_ipv4_prefixes {
+            if other_ipv4_map.get_lpm(&v4_prefix).is_some() {
+                continue;
+            }
+            // get non-overlapping sub-prefixes
+            let sub_prefixes = IpNet::aggregate(
+                &other_ipv4_map
+                    .children(v4_prefix)
+                    .map(|(p, _)| IpNet::from(*p))
+                    .collect::<Vec<IpNet>>(),
+            );
+
+            if sub_prefixes.is_empty() {
+                // Self-trie does not have any sub-prefixes of the given trie
+                removed.insert(*v4_prefix, true);
+            } else {
+                // Self-trie has sub-prefixes of the given trie, in other words, the other-trie
+                // added a new covering super-prefix comparing to the self-trie.
+
+                let mut target_prefixes: Vec<IpNet> = vec![(*v4_prefix).into()];
+                for sub_prefix in sub_prefixes {
+                    let mut new_prefixes = vec![];
+                    for target_prefix in target_prefixes {
+                        // make sure none of the new prefixes overlap with the sub-prefix prefix
+                        new_prefixes.extend(exclude_prefix(target_prefix, sub_prefix));
+                    }
+
+                    target_prefixes = IpNet::aggregate(&new_prefixes);
+                }
+                for target_prefix in target_prefixes {
+                    removed.insert(target_prefix, true);
+                }
+            }
+        }
+
+        let mut self_ipv6_map: PrefixMap<Ipv6Net, bool> = PrefixMap::new();
+        for prefix in &self_ipv6_prefixes {
+            self_ipv6_map.insert(*prefix, true);
+        }
+        let mut other_ipv6_map: PrefixMap<Ipv6Net, bool> = PrefixMap::new();
+        for prefix in &other_ipv6_prefixes {
+            other_ipv6_map.insert(*prefix, true);
+        }
+        // check added prefixes in other
+        for v6_prefix in &other_ipv6_prefixes {
+            if self_ipv6_map.get_lpm(&v6_prefix).is_some() {
+                // Prefix is covered by some super-prefix in self, nothing added
+                continue;
+            }
+
+            // Prefix is not covered by some super-prefix in self, there might be some overlapping sub-prefixes.
+            // get non-overlapping sub-prefixes
+            let sub_prefixes = IpNet::aggregate(
+                &self_ipv6_map
+                    .children(v6_prefix)
+                    .map(|(p, _)| IpNet::from(*p))
+                    .collect::<Vec<IpNet>>(),
+            );
+
+            if sub_prefixes.is_empty() {
+                // Self-trie does not have any sub-prefixes of the given trie
+                added.insert(*v6_prefix, true);
+            } else {
+                // Self-trie has sub-prefixes of the given trie, in other words, the other-trie
+                // added a new covering super-prefix comparing to the self-trie.
+
+                let mut target_prefixes: Vec<IpNet> = vec![(*v6_prefix).into()];
+                for sub_prefix in sub_prefixes {
+                    let mut new_prefixes = vec![];
+                    for target_prefix in target_prefixes {
+                        // make sure none of the new prefixes overlap with the sub-prefix prefix
+                        new_prefixes.extend(exclude_prefix(target_prefix, sub_prefix));
+                    }
+
+                    target_prefixes = IpNet::aggregate(&new_prefixes);
+                }
+                for target_prefix in target_prefixes {
+                    added.insert(target_prefix, true);
+                }
+            }
+        }
+        // check deleted prefixes in other
+        for v6_prefix in &self_ipv6_prefixes {
+            if other_ipv6_map.get_lpm(&v6_prefix).is_some() {
+                continue;
+            }
+            // get non-overlapping sub-prefixes
+            let sub_prefixes = IpNet::aggregate(
+                &other_ipv6_map
+                    .children(v6_prefix)
+                    .map(|(p, _)| IpNet::from(*p))
+                    .collect::<Vec<IpNet>>(),
+            );
+
+            if sub_prefixes.is_empty() {
+                // Self-trie does not have any sub-prefixes of the given trie
+                removed.insert(*v6_prefix, true);
+            } else {
+                // Self-trie has sub-prefixes of the given trie, in other words, the other-trie
+                // added a new covering super-prefix comparing to the self-trie.
+
+                let mut target_prefixes: Vec<IpNet> = vec![(*v6_prefix).into()];
+                for sub_prefix in sub_prefixes {
+                    let mut new_prefixes = vec![];
+                    for target_prefix in target_prefixes {
+                        // make sure none of the new prefixes overlap with the sub-prefix prefix
+                        new_prefixes.extend(exclude_prefix(target_prefix, sub_prefix));
+                    }
+
+                    target_prefixes = IpNet::aggregate(&new_prefixes);
+                }
+                for target_prefix in target_prefixes {
+                    removed.insert(target_prefix, true);
+                }
+            }
+        }
+
+        (
+            added.iter().map(|(p, _)| p).collect(),
+            removed.iter().map(|(p, _)| p).collect(),
+        )
     }
 }
 
