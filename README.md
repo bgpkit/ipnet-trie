@@ -28,7 +28,7 @@ Add this to your `Cargo.toml`:
 ```toml
 [dependencies]
 ipnet = "2.8"
-ipnet-trie = "0.1"
+ipnet-trie = "0.2"
 ```
 
 and then you can use it like this:
