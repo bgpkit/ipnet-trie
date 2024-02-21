@@ -16,8 +16,8 @@ edition = "2021"
 
 [dependencies]
 ipnet = "2.8"
-ip_network_table-deps-treebitmap = "0.5"
-bincode= { version = "2.0.0-rc", optional = true }
+prefix-trie = "0.2.5"
+bincode = { version = "2.0.0-rc", optional = true }
 
 [features]
 default = []
@@ -25,9 +25,9 @@ export = ["bincode"]
 
 [dev-dependencies]
 criterion = "0.5"
-oneio = "0.15"
+oneio = "0.16"
 tempdir = "0.3"
-bgpkit-parser = "0.10.0-beta.1"
+bgpkit-parser = "0.10.0"
 
 [[bench]]
 name = "benchmark"
