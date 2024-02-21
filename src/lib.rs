@@ -30,7 +30,6 @@ mod export;
 
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use prefix_trie::PrefixMap;
-use std::collections::HashSet;
 
 /// Table holding IPv4 and IPv6 network prefixes with value.
 #[derive(Default)]
@@ -52,80 +51,252 @@ where
 }
 
 impl<T: Clone> IpnetTrie<T> {
-    /// Count the number of unique IPv4 and IPv6 addresses in the trie.
+    /// Find the difference between two prefix tries, returning two vectors of IpNets, one for
+    /// added prefixes, and one for removed prefixes.
     ///
-    /// ```rust
-    /// use std::str::FromStr;
-    /// use ipnet::{Ipv4Net, Ipv6Net};
-    /// use ipnet_trie::IpnetTrie;
-    ///
-    /// let mut table = IpnetTrie::new();
-    /// table.insert(Ipv4Net::from_str("192.0.2.129/25").unwrap(), 1);
-    /// table.insert(Ipv4Net::from_str("192.0.2.0/24").unwrap(), 1);
-    /// table.insert(Ipv4Net::from_str("192.0.2.0/24").unwrap(), 1);
-    /// table.insert(Ipv4Net::from_str("192.0.2.0/24").unwrap(), 1);
-    /// assert_eq!(table.ip_count(), (256, 0));
-    ///
-    /// table.insert(Ipv4Net::from_str("198.51.100.0/25").unwrap(), 1);
-    /// table.insert(Ipv4Net::from_str("198.51.100.64/26").unwrap(), 1);
-    /// assert_eq!(table.ip_count(), (384, 0));
-    ///
-    /// table.insert(Ipv4Net::from_str("198.51.100.65/26").unwrap(), 1);
-    /// assert_eq!(table.ip_count(), (384, 0));
-    ///
-    /// table.insert(Ipv6Net::from_str("2001:DB80::/48").unwrap(), 1);
-    /// assert_eq!(table.ip_count(), (384, 2_u128.pow(80)));
-    /// table.insert(Ipv6Net::from_str("2001:DB80::/49").unwrap(), 1);
-    /// assert_eq!(table.ip_count(), (384, 2_u128.pow(80)));
-    /// table.insert(Ipv6Net::from_str("2001:DB81::/48").unwrap(), 1);
-    /// assert_eq!(table.ip_count(), (384, 2_u128.pow(81)));
-    /// ```
-    pub fn ip_count(&self) -> (u32, u128) {
-        let mut new_trie = self.clone();
+    /// - added prefixes: all prefixes in other that are not in self
+    /// - removed prefixes: all prefixes in self that are not in other
+    pub fn diff(&self, other: &Self) -> (Vec<IpNet>, Vec<IpNet>) {
+        let mut added = IpnetTrie::<bool>::new();
+        let mut removed = IpnetTrie::<bool>::new();
 
-        let mut root_ipv4_prefixes: HashSet<Ipv4Net> = HashSet::new();
-        let mut root_ipv6_prefixes: HashSet<Ipv6Net> = HashSet::new();
+        // Find added prefixes: all prefixes in self that are not in other
+        // Method: build a trie using all prefixes in self, then remove all prefixes in other on the trie.
+        // The remaining prefixes are the added prefixes.
+        let (self_ipv4_prefixes, self_ipv6_prefixes) = self.get_aggregated_prefixes();
+        let (other_ipv4_prefixes, other_ipv6_prefixes) = other.get_aggregated_prefixes();
 
-        loop {
-            let mut v4_iter = new_trie.ipv4.iter();
-            match v4_iter.next() {
-                Some((net, _data)) => {
-                    let root_prefix = new_trie.ipv4.get_spm_prefix(net).unwrap().clone();
-                    root_ipv4_prefixes.insert(root_prefix);
-                    new_trie.ipv4.remove_children(&root_prefix);
+        let mut self_ipv4_map: PrefixMap<Ipv4Net, bool> = PrefixMap::new();
+        for prefix in &self_ipv4_prefixes {
+            self_ipv4_map.insert(*prefix, true);
+        }
+        let mut other_ipv4_map: PrefixMap<Ipv4Net, bool> = PrefixMap::new();
+        for prefix in &other_ipv4_prefixes {
+            other_ipv4_map.insert(*prefix, true);
+        }
+        // check added prefixes in other
+        for v4_prefix in &other_ipv4_prefixes {
+            if self_ipv4_map.get_lpm(&v4_prefix).is_some() {
+                // Prefix is covered by some super-prefix in self, nothing added
+                continue;
+            }
+
+            // Prefix is not covered by some super-prefix in self, there might be some overlapping sub-prefixes.
+            // get non-overlapping sub-prefixes
+            let sub_prefixes = IpNet::aggregate(
+                &self_ipv4_map
+                    .children(v4_prefix)
+                    .map(|(p, _)| IpNet::from(*p))
+                    .collect::<Vec<IpNet>>(),
+            );
+
+            if sub_prefixes.is_empty() {
+                // Self-trie does not have any sub-prefixes of the given trie
+                added.insert(*v4_prefix, true);
+            } else {
+                // Self-trie has sub-prefixes of the given trie, in other words, the other-trie
+                // added a new covering super-prefix comparing to the self-trie.
+
+                let mut target_prefixes: Vec<IpNet> = vec![(*v4_prefix).into()];
+                for sub_prefix in sub_prefixes {
+                    let mut new_prefixes = vec![];
+                    for target_prefix in target_prefixes {
+                        // make sure none of the new prefixes overlap with the sub-prefix prefix
+                        new_prefixes.extend(exclude_prefix(target_prefix, sub_prefix));
+                    }
+
+                    target_prefixes = IpNet::aggregate(&new_prefixes);
                 }
-                None => {
-                    break;
+                for target_prefix in target_prefixes {
+                    added.insert(target_prefix, true);
+                }
+            }
+        }
+        // check deleted prefixes in other
+        for v4_prefix in &self_ipv4_prefixes {
+            if other_ipv4_map.get_lpm(&v4_prefix).is_some() {
+                continue;
+            }
+            // get non-overlapping sub-prefixes
+            let sub_prefixes = IpNet::aggregate(
+                &other_ipv4_map
+                    .children(v4_prefix)
+                    .map(|(p, _)| IpNet::from(*p))
+                    .collect::<Vec<IpNet>>(),
+            );
+
+            if sub_prefixes.is_empty() {
+                // Self-trie does not have any sub-prefixes of the given trie
+                removed.insert(*v4_prefix, true);
+            } else {
+                // Self-trie has sub-prefixes of the given trie, in other words, the other-trie
+                // added a new covering super-prefix comparing to the self-trie.
+
+                let mut target_prefixes: Vec<IpNet> = vec![(*v4_prefix).into()];
+                for sub_prefix in sub_prefixes {
+                    let mut new_prefixes = vec![];
+                    for target_prefix in target_prefixes {
+                        // make sure none of the new prefixes overlap with the sub-prefix prefix
+                        new_prefixes.extend(exclude_prefix(target_prefix, sub_prefix));
+                    }
+
+                    target_prefixes = IpNet::aggregate(&new_prefixes);
+                }
+                for target_prefix in target_prefixes {
+                    removed.insert(target_prefix, true);
                 }
             }
         }
 
-        loop {
-            let mut v6_iter = new_trie.ipv6.iter();
-            match v6_iter.next() {
-                Some((net, _data)) => {
-                    let root_prefix = new_trie.ipv6.get_spm_prefix(net).unwrap().clone();
-                    root_ipv6_prefixes.insert(root_prefix);
-                    new_trie.ipv6.remove_children(&root_prefix);
+        let mut self_ipv6_map: PrefixMap<Ipv6Net, bool> = PrefixMap::new();
+        for prefix in &self_ipv6_prefixes {
+            self_ipv6_map.insert(*prefix, true);
+        }
+        let mut other_ipv6_map: PrefixMap<Ipv6Net, bool> = PrefixMap::new();
+        for prefix in &other_ipv6_prefixes {
+            other_ipv6_map.insert(*prefix, true);
+        }
+        // check added prefixes in other
+        for v6_prefix in &other_ipv6_prefixes {
+            if self_ipv6_map.get_lpm(&v6_prefix).is_some() {
+                // Prefix is covered by some super-prefix in self, nothing added
+                continue;
+            }
+
+            // Prefix is not covered by some super-prefix in self, there might be some overlapping sub-prefixes.
+            // get non-overlapping sub-prefixes
+            let sub_prefixes = IpNet::aggregate(
+                &self_ipv6_map
+                    .children(v6_prefix)
+                    .map(|(p, _)| IpNet::from(*p))
+                    .collect::<Vec<IpNet>>(),
+            );
+
+            if sub_prefixes.is_empty() {
+                // Self-trie does not have any sub-prefixes of the given trie
+                added.insert(*v6_prefix, true);
+            } else {
+                // Self-trie has sub-prefixes of the given trie, in other words, the other-trie
+                // added a new covering super-prefix comparing to the self-trie.
+
+                let mut target_prefixes: Vec<IpNet> = vec![(*v6_prefix).into()];
+                for sub_prefix in sub_prefixes {
+                    let mut new_prefixes = vec![];
+                    for target_prefix in target_prefixes {
+                        // make sure none of the new prefixes overlap with the sub-prefix prefix
+                        new_prefixes.extend(exclude_prefix(target_prefix, sub_prefix));
+                    }
+
+                    target_prefixes = IpNet::aggregate(&new_prefixes);
                 }
-                None => {
-                    break;
+                for target_prefix in target_prefixes {
+                    added.insert(target_prefix, true);
+                }
+            }
+        }
+        // check deleted prefixes in other
+        for v6_prefix in &self_ipv6_prefixes {
+            if other_ipv6_map.get_lpm(&v6_prefix).is_some() {
+                continue;
+            }
+            // get non-overlapping sub-prefixes
+            let sub_prefixes = IpNet::aggregate(
+                &other_ipv6_map
+                    .children(v6_prefix)
+                    .map(|(p, _)| IpNet::from(*p))
+                    .collect::<Vec<IpNet>>(),
+            );
+
+            if sub_prefixes.is_empty() {
+                // Self-trie does not have any sub-prefixes of the given trie
+                removed.insert(*v6_prefix, true);
+            } else {
+                // Self-trie has sub-prefixes of the given trie, in other words, the other-trie
+                // added a new covering super-prefix comparing to the self-trie.
+
+                let mut target_prefixes: Vec<IpNet> = vec![(*v6_prefix).into()];
+                for sub_prefix in sub_prefixes {
+                    let mut new_prefixes = vec![];
+                    for target_prefix in target_prefixes {
+                        // make sure none of the new prefixes overlap with the sub-prefix prefix
+                        new_prefixes.extend(exclude_prefix(target_prefix, sub_prefix));
+                    }
+
+                    target_prefixes = IpNet::aggregate(&new_prefixes);
+                }
+                for target_prefix in target_prefixes {
+                    removed.insert(target_prefix, true);
                 }
             }
         }
 
-        let mut ipv4_space: u32 = 0;
-        let mut ipv6_space: u128 = 0;
-
-        for prefix in root_ipv4_prefixes {
-            ipv4_space += 2u32.pow(32 - prefix.prefix_len() as u32);
-        }
-        for prefix in root_ipv6_prefixes {
-            ipv6_space += 2u128.pow(128 - prefix.prefix_len() as u32);
-        }
-
-        (ipv4_space, ipv6_space)
+        (
+            added.iter().map(|(p, _)| p).collect(),
+            removed.iter().map(|(p, _)| p).collect(),
+        )
     }
+}
+
+/// Splits a source IP network into multiple IP networks based on a target IP network.
+///
+/// It makes sure the returning IP networks are non-overlapping and does not include the target prefix.
+///
+/// # Arguments
+///
+/// * `source` - The source IP network to split.
+/// * `target` - The target IP network used for splitting.
+///
+/// # Returns
+///
+/// A vector containing the split IP networks.
+/// ```
+/// use std::net::{IpAddr, Ipv4Addr};
+/// use ipnet::{IpNet, Ipv4Net};
+/// use ipnet_trie::exclude_prefix;
+///
+/// let source: IpNet = IpNet::V4(Ipv4Net::new(Ipv4Addr::new(192, 168, 0, 0), 22).unwrap());
+/// let target: IpNet = IpNet::V4(Ipv4Net::new(Ipv4Addr::new(192, 168, 0, 0), 24).unwrap());
+/// let split_networks = exclude_prefix(source, target);
+/// assert_eq!(split_networks.len(), 2);
+///
+/// let source: IpNet = IpNet::V4(Ipv4Net::new(Ipv4Addr::new(192, 168, 0, 0), 24).unwrap());
+/// let target: IpNet = IpNet::V4(Ipv4Net::new(Ipv4Addr::new(192, 168, 0, 0), 24).unwrap());
+/// let split_networks = exclude_prefix(source, target);
+/// assert_eq!(split_networks.len(), 0);
+///
+/// let source: IpNet = IpNet::V4(Ipv4Net::new(Ipv4Addr::new(192, 168, 0, 0), 23).unwrap());
+/// let target: IpNet = IpNet::V4(Ipv4Net::new(Ipv4Addr::new(192, 168, 0, 0), 24).unwrap());
+/// let split_networks = exclude_prefix(source, target);
+/// assert_eq!(split_networks.len(), 1);
+/// assert_ne!(split_networks[0], source);
+///
+/// let source: IpNet = IpNet::V4(Ipv4Net::new(Ipv4Addr::new(192, 168, 0, 0), 24).unwrap());
+/// let target: IpNet = IpNet::V4(Ipv4Net::new(Ipv4Addr::new(192, 168, 0, 0), 23).unwrap());
+/// let split_networks = exclude_prefix(source, target);
+/// assert_eq!(split_networks[0], source);
+/// assert_eq!(split_networks.len(), 1);
+/// ```
+pub fn exclude_prefix(source: IpNet, target: IpNet) -> Vec<IpNet> {
+    let new_prefixes = match source.contains(&target) {
+        true => {
+            // target_prefix is covered by sub_prefix, split it!
+            source
+                .subnets(target.prefix_len())
+                .unwrap()
+                .into_iter()
+                .filter_map(|p| match p == target {
+                    true => None,
+                    false => Some(p),
+                })
+                .collect()
+        }
+        false => {
+            // target_prefix is not covered by sub_prefix, keep it as is
+            vec![source]
+        }
+    };
+
+    IpNet::aggregate(&new_prefixes)
 }
 
 impl<T> IpnetTrie<T> {
@@ -492,12 +663,86 @@ impl<T> IpnetTrie<T> {
             self.remove(network);
         }
     }
+
+    /// Count the number of unique IPv4 and IPv6 addresses in the trie.
+    ///
+    /// ```rust
+    /// use std::str::FromStr;
+    /// use ipnet::{Ipv4Net, Ipv6Net};
+    /// use ipnet_trie::IpnetTrie;
+    ///
+    /// let mut table = IpnetTrie::new();
+    /// table.insert(Ipv4Net::from_str("192.0.2.129/25").unwrap(), 1);
+    /// table.insert(Ipv4Net::from_str("192.0.2.0/24").unwrap(), 1);
+    /// table.insert(Ipv4Net::from_str("192.0.2.0/24").unwrap(), 1);
+    /// table.insert(Ipv4Net::from_str("192.0.2.0/24").unwrap(), 1);
+    /// assert_eq!(table.ip_count(), (256, 0));
+    ///
+    /// table.insert(Ipv4Net::from_str("198.51.100.0/25").unwrap(), 1);
+    /// table.insert(Ipv4Net::from_str("198.51.100.64/26").unwrap(), 1);
+    /// assert_eq!(table.ip_count(), (384, 0));
+    ///
+    /// table.insert(Ipv4Net::from_str("198.51.100.65/26").unwrap(), 1);
+    /// assert_eq!(table.ip_count(), (384, 0));
+    ///
+    /// table.insert(Ipv6Net::from_str("2001:DB80::/48").unwrap(), 1);
+    /// assert_eq!(table.ip_count(), (384, 2_u128.pow(80)));
+    /// table.insert(Ipv6Net::from_str("2001:DB80::/49").unwrap(), 1);
+    /// assert_eq!(table.ip_count(), (384, 2_u128.pow(80)));
+    /// table.insert(Ipv6Net::from_str("2001:DB81::/48").unwrap(), 1);
+    /// assert_eq!(table.ip_count(), (384, 2_u128.pow(81)));
+    /// ```
+    pub fn ip_count(&self) -> (u32, u128) {
+        let (root_ipv4_prefixes, root_ipv6_prefixes) = self.get_aggregated_prefixes();
+
+        let mut ipv4_space: u32 = 0;
+        let mut ipv6_space: u128 = 0;
+
+        for prefix in root_ipv4_prefixes {
+            ipv4_space += 2u32.pow(32 - prefix.prefix_len() as u32);
+        }
+        for prefix in root_ipv6_prefixes {
+            ipv6_space += 2u128.pow(128 - prefix.prefix_len() as u32);
+        }
+
+        (ipv4_space, ipv6_space)
+    }
+
+    /// Retrieves the aggregated prefixes for both IPv4 and IPv6 from the given data.
+    ///
+    /// # Returns
+    ///
+    /// A tuple containing two vectors. The first vector contains the aggregated IPv4 prefixes,
+    /// and the second vector contains the aggregated IPv6 prefixes.
+    pub fn get_aggregated_prefixes(&self) -> (Vec<Ipv4Net>, Vec<Ipv6Net>) {
+        // get a Vector of all prefixes for IPv4 and IPv6
+        let mut all_prefixes = self
+            .ipv4
+            .iter()
+            .map(|(net, _data)| IpNet::from(*net))
+            .collect::<Vec<IpNet>>();
+        all_prefixes.extend(self.ipv6.iter().map(|(net, _data)| IpNet::from(*net)));
+
+        // get the aggregated prefixes
+        let aggregated_prefixes = IpNet::aggregate(&all_prefixes);
+
+        // split aggregated_prefixes into IPv4 and IPv6 prefixes
+        let mut ipv4_prefixes = Vec::new();
+        let mut ipv6_prefixes = Vec::new();
+        for prefix in aggregated_prefixes {
+            match prefix {
+                IpNet::V4(net) => ipv4_prefixes.push(net),
+                IpNet::V6(net) => ipv6_prefixes.push(net),
+            }
+        }
+        (ipv4_prefixes, ipv6_prefixes)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::IpnetTrie;
-    use ipnet::{Ipv4Net, Ipv6Net};
+    use ipnet::{IpNet, Ipv4Net, Ipv6Net};
     use std::net::{Ipv4Addr, Ipv6Addr};
     use std::str::FromStr;
 
@@ -561,5 +806,60 @@ mod tests {
         assert_eq!(table.ip_count(), (384, 2_u128.pow(80)));
         table.insert(Ipv6Net::from_str("2001:DB80::/49").unwrap(), 1);
         assert_eq!(table.ip_count(), (384, 2_u128.pow(80)));
+    }
+
+    #[test]
+    fn test_comparison() {
+        let mut trie_1 = IpnetTrie::new();
+        trie_1.insert(Ipv4Net::from_str("192.168.0.0/23").unwrap(), 1);
+        trie_1.insert(Ipv4Net::from_str("192.168.2.0/24").unwrap(), 1);
+
+        let mut trie_2 = IpnetTrie::new();
+        trie_2.insert(Ipv4Net::from_str("192.168.2.0/24").unwrap(), 1);
+
+        let (_added, removed) = trie_1.diff(&trie_2);
+        assert_eq!(removed.len(), 1);
+        assert_eq!(
+            removed[0],
+            IpNet::V4(Ipv4Net::from_str("192.168.0.0/23").unwrap())
+        );
+
+        trie_2.insert(Ipv4Net::from_str("192.168.0.0/24").unwrap(), 1);
+        let (_added, removed) = trie_1.diff(&trie_2);
+        assert_eq!(removed.len(), 1);
+        assert_eq!(
+            removed[0],
+            IpNet::from(Ipv4Net::from_str("192.168.1.0/24").unwrap())
+        );
+
+        trie_2.insert(Ipv4Net::from_str("192.168.3.0/24").unwrap(), 1);
+        let (added, removed) = trie_1.diff(&trie_2);
+        assert_eq!(removed.len(), 1);
+        assert_eq!(
+            removed[0],
+            IpNet::from(Ipv4Net::from_str("192.168.1.0/24").unwrap())
+        );
+        assert_eq!(added.len(), 1);
+        assert_eq!(
+            added[0],
+            IpNet::from(Ipv4Net::from_str("192.168.3.0/24").unwrap())
+        );
+
+        trie_2.insert(Ipv6Net::from_str("2001:DB80::/48").unwrap(), 1);
+        let (added, removed) = trie_1.diff(&trie_2);
+        assert_eq!(removed.len(), 1);
+        assert_eq!(
+            removed[0],
+            IpNet::from(Ipv4Net::from_str("192.168.1.0/24").unwrap())
+        );
+        assert_eq!(added.len(), 2);
+        assert_eq!(
+            added[0],
+            IpNet::from(Ipv4Net::from_str("192.168.3.0/24").unwrap())
+        );
+        assert_eq!(
+            added[1],
+            IpNet::from(Ipv6Net::from_str("2001:DB80::/48").unwrap())
+        );
     }
 }
