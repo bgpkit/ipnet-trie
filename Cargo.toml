@@ -1,8 +1,8 @@
 [package]
 name = "ipnet-trie"
-version = "0.1.0"
-authors = ["Mingwei Zhang <mingwei@bgpkit.com>", "Jakub Onderka <ahoj@jakubonderka.cz>"]
-license = "BSD-2-Clause"
+version = "0.2.0-beta.1"
+authors = ["Mingwei Zhang <mingwei@bgpkit.com>"]
+license = "MIT"
 keywords = ["ip", "network", "address", "bgp", "trie"]
 categories = ["network-programming", "data-structures"]
 readme = "README.md"
