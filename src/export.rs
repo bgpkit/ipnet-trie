@@ -9,6 +9,8 @@ pub struct IpnetTrieError {
     details: String,
 }
 
+impl std::error::Error for IpnetTrieError {}
+
 impl IpnetTrieError {
     pub fn new(msg: &str) -> IpnetTrieError {
         IpnetTrieError {
@@ -255,6 +257,21 @@ mod tests {
         assert_eq!(trie.iter().count(), new_trie.iter().count());
         for (net, value) in trie.iter() {
             assert_eq!(new_trie.exact_match(net).unwrap(), value);
+        }
+    }
+
+    #[test]
+    fn test_anyhow() {
+        // as long as the following code compiles, we are good
+        #[allow(dead_code)]
+        fn try_anyhow() -> anyhow::Result<()> {
+            let trie = IpnetTrie::<String>::new_test_large();
+            let tmp_dir = tempdir::TempDir::new("ipnet_trie_test").unwrap();
+            let file_path = tmp_dir.path().join("test_ipnet_trie_uncompressed.bin");
+            let mut writer = oneio::get_writer(file_path.to_str().unwrap()).unwrap();
+            trie.export_to_writer(&mut writer)?;
+            drop(writer);
+            Ok(())
         }
     }
 }
