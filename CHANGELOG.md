@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.0-beta.2 -- 2024-05-01
+
+### Highlights
+
+* implement `std::error::Error` for `IpnetTrieError`
+    * it should work with `?` operator for `anyhow` now
+
 ## v0.2.0-beta.1 -- 2024-02-20
 
 ### Highlights
