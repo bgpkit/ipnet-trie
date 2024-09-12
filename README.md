@@ -10,16 +10,20 @@ IPv4 and IPv6 network fast lookup prefix trie.
 
 ## Description
 
-This crate provides storage and retrieval of IPv4 and IPv6 network prefixes.
+This crate provides storage and retrieval of IPv4 and IPv6 network prefixes. It uses the [`ipnet`](https://docs.rs/ipnet/latest/ipnet/) crate as the IP network data structure and [`prefix-trie`](https://github.com/tiborschneider/prefix-trie) as the backend, offering fast lookup times and a small memory footprint.
 
-Currently, it uses [`ipnet`](https://docs.rs/ipnet/latest/ipnet/) crate as IP network data structure and
-[`prefix-trie`](https://github.com/tiborschneider/prefix-trie) as
-backend,
-that provides fast lookup times, and a small memory footprint.
+## Features
+
+- Fast prefix lookup for both IPv4 and IPv6 networks
+- Efficient storage of IP prefixes and associated data
+- Support for exact match and longest prefix match operations
+- Ability to iterate over all stored prefixes
+- Export and import functionality (with the `export` feature flag)
+- Diff operation to compare two tries
 
 ## Feature flags
 
-- `export`: enable export trie into bytes or to a writer and import from bytes or from a reader.
+- `export`: Enable export of the trie to bytes or a writer, and import from bytes or a reader.
 
 ## Usage
 
@@ -27,7 +31,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ipnet = "2.8"
+ipnet = "2"
 ipnet-trie = "0.2"
 ```
 
@@ -45,4 +49,61 @@ let ip_address = Ipv6Addr::new(0x2001, 0xdb8, 0xdead, 0xbeef, 0, 0, 0, 0x1);
 assert_eq!(table.insert(network, "foo"), None);
 // Get value for network from table
 assert_eq!(table.longest_match(ip_address), Some((network, &"foo")));
+```
+
+## Key Features
+
+### Insertion and Retrieval
+
+```rust
+// Insert a network
+table.insert(network, value);
+
+// Exact match
+let value = table.exact_match(network);
+
+// Longest prefix match
+let (matched_network, value) = table.longest_match(&ip_address);
+```
+
+### Iteration
+
+```rust
+// Iterate over all networks
+for (network, value) in table.iter() {
+    // ...
+}
+```
+
+### IP Count
+
+```rust
+// Get the total number of unique IPv4 and IPv6 addresses in the trie
+let (ipv4_count, ipv6_count) = table.ip_count();
+```
+
+### Diff Operation
+
+```rust
+// Compare two tries
+let (added, removed) = trie1.diff(&trie2);
+```
+
+### Export and Import (with `export` feature)
+
+```rust
+// Export to bytes
+let bytes = table.export_to_bytes();
+
+// Import from bytes
+table.import_from_bytes(&bytes);
+
+// Export to writer
+table.export_to_writer(&mut writer)?;
+
+// Import from reader
+table.import_from_reader(&mut reader)?;
+```
+
+// ... existing code ...
 ```

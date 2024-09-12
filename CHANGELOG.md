@@ -2,17 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
-## v0.2.0-beta.2 -- 2024-05-01
+## v0.2.0 -- 2024-09-11
 
 ### Highlights
 
 * implement `std::error::Error` for `IpnetTrieError`
     * it should work with `?` operator for `anyhow` now
-
-## v0.2.0-beta.1 -- 2024-02-20
-
-### Highlights
-
 * switch to `[prefix-trie](https://crates.io/crates/prefix-trie)` as the default prefix trie implementation
 * improve `ip_count` implementation based on clone and sub-tree removal
 * implement `diff` function to compare two ipnet-trie structs' content
