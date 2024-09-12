@@ -51,8 +51,6 @@ assert_eq!(table.insert(network, "foo"), None);
 assert_eq!(table.longest_match(ip_address), Some((network, &"foo")));
 ```
 
-## Key Features
-
 ### Insertion and Retrieval
 
 ```rust
@@ -103,7 +101,4 @@ table.export_to_writer(&mut writer)?;
 
 // Import from reader
 table.import_from_reader(&mut reader)?;
-```
-
-// ... existing code ...
 ```
