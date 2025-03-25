@@ -55,7 +55,7 @@ impl From<PrefixLenError> for IpnetTrieError {
     }
 }
 
-impl<T: Encode + Decode> IpnetTrie<T> {
+impl<T: Encode + Decode<()>> IpnetTrie<T> {
     /// Exports the contents of the `IpnetTrie` to a writer.
     ///
     /// # Arguments

@@ -1,6 +1,6 @@
 [package]
 name = "ipnet-trie"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Mingwei Zhang <mingwei@bgpkit.com>"]
 license = "MIT"
 keywords = ["ip", "network", "address", "bgp", "trie"]
@@ -16,8 +16,8 @@ edition = "2021"
 
 [dependencies]
 ipnet = "2.8"
-prefix-trie = "0.2.5"
-bincode = { version = "2.0.0-rc", optional = true }
+prefix-trie = "0.6"
+bincode = { version = "2.0", optional = true }
 
 [features]
 default = []
@@ -25,9 +25,9 @@ export = ["bincode"]
 
 [dev-dependencies]
 criterion = "0.5"
-oneio = "0.16"
+oneio = "0.17"
 tempdir = "0.3"
-bgpkit-parser = "0.10"
+bgpkit-parser = "0.11"
 anyhow = "1.0"
 
 [[bench]]

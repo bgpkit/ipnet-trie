@@ -354,7 +354,7 @@ impl<T> IpnetTrie<T> {
     pub fn matches_ipv4(&self, net: &Ipv4Net) -> Vec<(&Ipv4Net, &T)> {
         match self.ipv4.get_spm(net) {
             None => vec![],
-            Some((shortest, _)) => self.ipv4.children(shortest).collect(),
+            Some((shortest, _)) => self.ipv4.children(*shortest).collect(),
         }
     }
 
@@ -362,7 +362,7 @@ impl<T> IpnetTrie<T> {
     pub fn matches_ipv6(&self, net: &Ipv6Net) -> Vec<(&Ipv6Net, &T)> {
         match self.ipv6.get_spm(net) {
             None => vec![],
-            Some((shortest, _)) => self.ipv6.children(shortest).collect(),
+            Some((shortest, _)) => self.ipv6.children(*shortest).collect(),
         }
     }
 
@@ -585,7 +585,7 @@ impl<T> IpnetTrie<T> {
             // get non-overlapping sub-prefixes
             let sub_prefixes = IpNet::aggregate(
                 &self_ipv4_map
-                    .children(v4_prefix)
+                    .children(*v4_prefix)
                     .map(|(p, _)| IpNet::from(*p))
                     .collect::<Vec<IpNet>>(),
             );
@@ -620,7 +620,7 @@ impl<T> IpnetTrie<T> {
             // get non-overlapping sub-prefixes
             let sub_prefixes = IpNet::aggregate(
                 &other_ipv4_map
-                    .children(v4_prefix)
+                    .children(*v4_prefix)
                     .map(|(p, _)| IpNet::from(*p))
                     .collect::<Vec<IpNet>>(),
             );
@@ -667,7 +667,7 @@ impl<T> IpnetTrie<T> {
             // get non-overlapping sub-prefixes
             let sub_prefixes = IpNet::aggregate(
                 &self_ipv6_map
-                    .children(v6_prefix)
+                    .children(*v6_prefix)
                     .map(|(p, _)| IpNet::from(*p))
                     .collect::<Vec<IpNet>>(),
             );
@@ -702,7 +702,7 @@ impl<T> IpnetTrie<T> {
             // get non-overlapping sub-prefixes
             let sub_prefixes = IpNet::aggregate(
                 &other_ipv6_map
-                    .children(v6_prefix)
+                    .children(*v6_prefix)
                     .map(|(p, _)| IpNet::from(*p))
                     .collect::<Vec<IpNet>>(),
             );

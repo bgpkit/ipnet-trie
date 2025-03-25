@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.3.0 -- 2025-03-25
+
+### Highlight
+
+* build `bincode` build issue
+* update dependencies
+    * core
+        * `prefix-trie`: `0.2.5` -> `0.6.0`
+        * `bincode`: `2.0.0-rc` -> `2.0.1`
+        * `oneio`: `0.16` -> `0.17`
+    * dev
+        * `oneio`: `0.16` -> `0.17`
+        * `bgpkit-parser`: `0.10` -> `0.11`
+
 ## v0.2.0 -- 2024-09-11
 
 ### Highlights
