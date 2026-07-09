@@ -31,6 +31,23 @@ mod export;
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 use prefix_trie::PrefixMap;
 
+/// The number of unique IP addresses covered by prefixes in the trie.
+///
+/// Returned by [`IpnetTrie::ip_count`].
+///
+/// `ipv4` uses `u64` and can represent the entire IPv4 address space (2³²).
+/// `ipv6` is `Option<u128>`: `Some(count)` for values up to 2¹²⁸−1, and `None`
+/// when the entire IPv6 address space (2¹²⁸ addresses) is covered — a value too
+/// large to store in a `u128`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IpCount {
+    /// Number of unique IPv4 addresses covered (maximum 2³²).
+    pub ipv4: u64,
+    /// Number of unique IPv6 addresses covered, or `None` if the entire
+    /// IPv6 space (2¹²⁸) is covered.
+    pub ipv6: Option<u128>,
+}
+
 /// Table holding IPv4 and IPv6 network prefixes with value.
 #[derive(Default)]
 pub struct IpnetTrie<T> {
@@ -479,46 +496,78 @@ impl<T> IpnetTrie<T> {
 
     /// Count the number of unique IPv4 and IPv6 addresses in the trie.
     ///
+    /// Returns an [`IpCount`] struct. The `ipv4` field uses `u64` and can represent
+    /// the entire IPv4 address space (2³²). The `ipv6` field is `Option<u128>`:
+    /// `Some(count)` for any value up to 2¹²⁸−1, and `None` when the entire IPv6
+    /// address space (2¹²⁸ addresses) is covered, since that value cannot be
+    /// represented in a `u128`.
+    ///
     /// ```rust
     /// use std::str::FromStr;
     /// use ipnet::{Ipv4Net, Ipv6Net};
-    /// use ipnet_trie::IpnetTrie;
+    /// use ipnet_trie::{IpnetTrie, IpCount};
     ///
     /// let mut table = IpnetTrie::new();
     /// table.insert(Ipv4Net::from_str("192.0.2.129/25").unwrap(), 1);
     /// table.insert(Ipv4Net::from_str("192.0.2.0/24").unwrap(), 1);
     /// table.insert(Ipv4Net::from_str("192.0.2.0/24").unwrap(), 1);
     /// table.insert(Ipv4Net::from_str("192.0.2.0/24").unwrap(), 1);
-    /// assert_eq!(table.ip_count(), (256, 0));
+    /// assert_eq!(table.ip_count(), IpCount { ipv4: 256, ipv6: Some(0) });
     ///
     /// table.insert(Ipv4Net::from_str("198.51.100.0/25").unwrap(), 1);
     /// table.insert(Ipv4Net::from_str("198.51.100.64/26").unwrap(), 1);
-    /// assert_eq!(table.ip_count(), (384, 0));
+    /// assert_eq!(table.ip_count(), IpCount { ipv4: 384, ipv6: Some(0) });
     ///
     /// table.insert(Ipv4Net::from_str("198.51.100.65/26").unwrap(), 1);
-    /// assert_eq!(table.ip_count(), (384, 0));
+    /// assert_eq!(table.ip_count(), IpCount { ipv4: 384, ipv6: Some(0) });
     ///
     /// table.insert(Ipv6Net::from_str("2001:DB80::/48").unwrap(), 1);
-    /// assert_eq!(table.ip_count(), (384, 2_u128.pow(80)));
+    /// assert_eq!(table.ip_count(), IpCount { ipv4: 384, ipv6: Some(2_u128.pow(80)) });
     /// table.insert(Ipv6Net::from_str("2001:DB80::/49").unwrap(), 1);
-    /// assert_eq!(table.ip_count(), (384, 2_u128.pow(80)));
+    /// assert_eq!(table.ip_count(), IpCount { ipv4: 384, ipv6: Some(2_u128.pow(80)) });
     /// table.insert(Ipv6Net::from_str("2001:DB81::/48").unwrap(), 1);
-    /// assert_eq!(table.ip_count(), (384, 2_u128.pow(81)));
+    /// assert_eq!(table.ip_count(), IpCount { ipv4: 384, ipv6: Some(2_u128.pow(81)) });
+    ///
+    /// // Full IPv4 space (0.0.0.0/0) — 2^32 addresses, fits in u64
+    /// let mut v4_full = IpnetTrie::new();
+    /// v4_full.insert(Ipv4Net::from_str("0.0.0.0/0").unwrap(), 1);
+    /// assert_eq!(v4_full.ip_count(), IpCount { ipv4: 1u64 << 32, ipv6: Some(0) });
+    ///
+    /// // Full IPv6 space (::/0) — 2^128 addresses, cannot fit in u128
+    /// let mut v6_full = IpnetTrie::new();
+    /// v6_full.insert(Ipv6Net::from_str("::/0").unwrap(), 1);
+    /// assert_eq!(v6_full.ip_count(), IpCount { ipv4: 0, ipv6: None });
     /// ```
-    pub fn ip_count(&self) -> (u32, u128) {
+    pub fn ip_count(&self) -> IpCount {
         let (root_ipv4_prefixes, root_ipv6_prefixes) = self.get_aggregated_prefixes();
 
-        let mut ipv4_space: u32 = 0;
-        let mut ipv6_space: u128 = 0;
-
+        let mut ipv4_space: u64 = 0;
         for prefix in root_ipv4_prefixes {
-            ipv4_space += 2u32.pow(32 - prefix.prefix_len() as u32);
-        }
-        for prefix in root_ipv6_prefixes {
-            ipv6_space += 2u128.pow(128 - prefix.prefix_len() as u32);
+            ipv4_space += 1u64 << (32 - prefix.prefix_len() as u32);
         }
 
-        (ipv4_space, ipv6_space)
+        let mut ipv6_space: u128 = 0;
+        let mut ipv6_full = false;
+        for prefix in root_ipv6_prefixes {
+            let host_bits = 128 - prefix.prefix_len() as u32;
+            // 2^128 cannot be represented in u128; checked_shl returns None when
+            // host_bits >= 128, and checked_add catches any intermediate overflow.
+            match 1u128
+                .checked_shl(host_bits)
+                .and_then(|c| ipv6_space.checked_add(c))
+            {
+                Some(v) => ipv6_space = v,
+                None => {
+                    ipv6_full = true;
+                    break;
+                }
+            }
+        }
+
+        IpCount {
+            ipv4: ipv4_space,
+            ipv6: if ipv6_full { None } else { Some(ipv6_space) },
+        }
     }
 
     /// Retrieves the aggregated prefixes for both IPv4 and IPv6 from the given data.
@@ -786,24 +835,107 @@ mod tests {
 
     #[test]
     fn test_ip_count() {
+        use crate::IpCount;
+
         let mut table = IpnetTrie::new();
         table.insert(Ipv4Net::from_str("192.0.2.129/25").unwrap(), 1);
         table.insert(Ipv4Net::from_str("192.0.2.0/24").unwrap(), 1);
         table.insert(Ipv4Net::from_str("192.0.2.0/24").unwrap(), 1);
         table.insert(Ipv4Net::from_str("192.0.2.0/24").unwrap(), 1);
-        assert_eq!(table.ip_count(), (256, 0));
+        assert_eq!(
+            table.ip_count(),
+            IpCount {
+                ipv4: 256,
+                ipv6: Some(0)
+            }
+        );
 
         table.insert(Ipv4Net::from_str("198.51.100.0/25").unwrap(), 1);
         table.insert(Ipv4Net::from_str("198.51.100.64/26").unwrap(), 1);
-        assert_eq!(table.ip_count(), (384, 0));
+        assert_eq!(
+            table.ip_count(),
+            IpCount {
+                ipv4: 384,
+                ipv6: Some(0)
+            }
+        );
 
         table.insert(Ipv4Net::from_str("198.51.100.65/26").unwrap(), 1);
-        assert_eq!(table.ip_count(), (384, 0));
+        assert_eq!(
+            table.ip_count(),
+            IpCount {
+                ipv4: 384,
+                ipv6: Some(0)
+            }
+        );
 
         table.insert(Ipv6Net::from_str("2001:DB80::/48").unwrap(), 1);
-        assert_eq!(table.ip_count(), (384, 2_u128.pow(80)));
+        assert_eq!(
+            table.ip_count(),
+            IpCount {
+                ipv4: 384,
+                ipv6: Some(2_u128.pow(80))
+            }
+        );
         table.insert(Ipv6Net::from_str("2001:DB80::/49").unwrap(), 1);
-        assert_eq!(table.ip_count(), (384, 2_u128.pow(80)));
+        assert_eq!(
+            table.ip_count(),
+            IpCount {
+                ipv4: 384,
+                ipv6: Some(2_u128.pow(80))
+            }
+        );
+    }
+
+    #[test]
+    fn test_ip_count_full_space() {
+        use crate::IpCount;
+
+        // Full IPv4 space: 0.0.0.0/0 — 2^32 addresses, fits in u64
+        let mut v4_full = IpnetTrie::new();
+        v4_full.insert(Ipv4Net::from_str("0.0.0.0/0").unwrap(), 1);
+        assert_eq!(
+            v4_full.ip_count(),
+            IpCount {
+                ipv4: 1u64 << 32,
+                ipv6: Some(0)
+            }
+        );
+
+        // Full IPv6 space: ::/0 — 2^128 addresses, cannot fit in u128
+        let mut v6_full = IpnetTrie::new();
+        v6_full.insert(Ipv6Net::from_str("::/0").unwrap(), 1);
+        assert_eq!(
+            v6_full.ip_count(),
+            IpCount {
+                ipv4: 0,
+                ipv6: None
+            }
+        );
+
+        // Two /1 prefixes also cover all of IPv6 (2^127 + 2^127 = 2^128)
+        let mut v6_two_halves = IpnetTrie::new();
+        v6_two_halves.insert(Ipv6Net::from_str("::/1").unwrap(), 1);
+        v6_two_halves.insert(Ipv6Net::from_str("8000::/1").unwrap(), 1);
+        assert_eq!(
+            v6_two_halves.ip_count(),
+            IpCount {
+                ipv4: 0,
+                ipv6: None
+            }
+        );
+
+        // Both full spaces at once
+        let mut both = IpnetTrie::new();
+        both.insert(Ipv4Net::from_str("0.0.0.0/0").unwrap(), 1);
+        both.insert(Ipv6Net::from_str("::/0").unwrap(), 1);
+        assert_eq!(
+            both.ip_count(),
+            IpCount {
+                ipv4: 1u64 << 32,
+                ipv6: None
+            }
+        );
     }
 
     #[test]

@@ -76,8 +76,12 @@ for (network, value) in table.iter() {
 ### IP Count
 
 ```rust
+use ipnet_trie::IpCount;
+
 // Get the total number of unique IPv4 and IPv6 addresses in the trie
-let (ipv4_count, ipv6_count) = table.ip_count();
+let count: IpCount = table.ip_count();
+// count.ipv4 is u64 (can hold the full 2^32 IPv4 space)
+// count.ipv6 is Option<u128> — None when the entire IPv6 space (2^128) is covered
 ```
 
 ### Diff Operation

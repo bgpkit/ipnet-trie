@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.3.1 -- 2026-07-09
+
+### Bug Fixes
+
+* `ip_count` no longer panics when the trie covers a complete address space
+  (e.g. `0.0.0.0/0` or `::/0`). Previously the computation overflowed, causing
+  a panic in debug builds and silent wrap-around in release builds.
+
+### Breaking Changes
+
+* `ip_count` now returns `IpCount` (`{ ipv4: u64, ipv6: Option<u128> }`)
+  instead of `(u32, u128)`. The IPv4 count is widened to `u64` to hold the
+  full 2³² address space. The IPv6 count is `Option<u128>`: `None` indicates
+  the entire IPv6 space (2¹²⁸ addresses) is covered, a value too large for
+  `u128`.
+
 ## v0.3.0 -- 2025-03-25
 
 ### Highlight
