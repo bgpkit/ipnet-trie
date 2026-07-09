@@ -32,7 +32,7 @@ Add this to your `Cargo.toml`:
 ```toml
 [dependencies]
 ipnet = "2"
-ipnet-trie = "0.2"
+ipnet-trie = "0.3"
 ```
 
 and then you can use it like this:
@@ -48,7 +48,7 @@ let ip_address = Ipv6Addr::new(0x2001, 0xdb8, 0xdead, 0xbeef, 0, 0, 0, 0x1);
 
 assert_eq!(table.insert(network, "foo"), None);
 // Get value for network from table
-assert_eq!(table.longest_match(ip_address), Some((network, &"foo")));
+assert_eq!(table.longest_match(&IpNet::from(ip_address)), Some((network, &"foo")));
 ```
 
 ### Insertion and Retrieval
