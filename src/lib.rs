@@ -114,10 +114,7 @@ pub fn exclude_prefix(source: IpNet, target: IpNet) -> Vec<IpNet> {
                 .subnets(target.prefix_len())
                 .unwrap()
                 .into_iter()
-                .filter_map(|p| match p == target {
-                    true => None,
-                    false => Some(p),
-                })
+                .filter(|p| *p != target)
                 .collect()
         }
         false => {
@@ -625,7 +622,7 @@ impl<T> IpnetTrie<T> {
         }
         // check added prefixes in other
         for v4_prefix in &other_ipv4_prefixes {
-            if self_ipv4_map.get_lpm(&v4_prefix).is_some() {
+            if self_ipv4_map.get_lpm(v4_prefix).is_some() {
                 // Prefix is covered by some super-prefix in self, nothing added
                 continue;
             }
@@ -663,7 +660,7 @@ impl<T> IpnetTrie<T> {
         }
         // check deleted prefixes in other
         for v4_prefix in &self_ipv4_prefixes {
-            if other_ipv4_map.get_lpm(&v4_prefix).is_some() {
+            if other_ipv4_map.get_lpm(v4_prefix).is_some() {
                 continue;
             }
             // get non-overlapping sub-prefixes
@@ -707,7 +704,7 @@ impl<T> IpnetTrie<T> {
         }
         // check added prefixes in other
         for v6_prefix in &other_ipv6_prefixes {
-            if self_ipv6_map.get_lpm(&v6_prefix).is_some() {
+            if self_ipv6_map.get_lpm(v6_prefix).is_some() {
                 // Prefix is covered by some super-prefix in self, nothing added
                 continue;
             }
@@ -745,7 +742,7 @@ impl<T> IpnetTrie<T> {
         }
         // check deleted prefixes in other
         for v6_prefix in &self_ipv6_prefixes {
-            if other_ipv6_map.get_lpm(&v6_prefix).is_some() {
+            if other_ipv6_map.get_lpm(v6_prefix).is_some() {
                 continue;
             }
             // get non-overlapping sub-prefixes

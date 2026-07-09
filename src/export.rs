@@ -101,7 +101,7 @@ impl<T: Encode + Decode<()>> IpnetTrie<T> {
     /// # Parameters
     ///
     /// * `bytes` - A slice of bytes that represents all values to be imported. Each value is a tuple that
-    /// consists of the IP network address, the prefix length, and the value associated with this network.
+    ///   consists of the IP network address, the prefix length, and the value associated with this network.
     ///
     /// *NOTE: This method drops all existing values in the trie and replaces them with the ones provided.*/
     pub fn import_from_bytes(&mut self, bytes: &[u8]) {
