@@ -1,6 +1,6 @@
 [package]
 name = "ipnet-trie"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Mingwei Zhang <mingwei@bgpkit.com>"]
 license = "MIT"
 keywords = ["ip", "network", "address", "bgp", "trie"]
